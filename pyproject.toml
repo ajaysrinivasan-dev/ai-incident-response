@@ -1,0 +1,18 @@
+[project]
+name = "langgraph-incident-response"
+version = "1.0.0"
+description = "Local cybersecurity incident response agent using LangGraph, Streamlit, SQLite, and Ollama."
+requires-python = ">=3.14,<3.15"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
