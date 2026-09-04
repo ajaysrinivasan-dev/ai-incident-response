@@ -17,7 +17,11 @@ def test_workflow_pauses_for_human_approval():
         ],
     }
 
-    config = {"configurable": {"thread_id": "test-phishing-approval"}}
+    config = {
+        "configurable": {
+            "thread_id": "test-phishing-approval-v2"
+        }
+    }
 
     result = graph.invoke(
         {
@@ -30,6 +34,25 @@ def test_workflow_pauses_for_human_approval():
 
     assert "human_approval" in state.next
     assert result is not None
+
+    evidence = state.values.get(
+        "evidence",
+        [],
+    )
+
+    decisions = state.values.get(
+        "decisions",
+        [],
+    )
+
+    assert evidence
+    assert decisions
+
+    for item in evidence:
+        assert "timestamp" in item
+
+    for decision in decisions:
+        assert "timestamp" in decision
 
 
 def test_workflow_resumes_after_approval():
@@ -46,7 +69,11 @@ def test_workflow_resumes_after_approval():
         ],
     }
 
-    config = {"configurable": {"thread_id": "test-phishing-resume"}}
+    config = {
+        "configurable": {
+            "thread_id": "test-phishing-resume-v2"
+        }
+    }
 
     graph.invoke(
         {
@@ -74,3 +101,13 @@ def test_workflow_resumes_after_approval():
     assert final_state.next == ()
     assert "final_report" in final_state.values
     assert final_state.values["containment_approved"] is True
+
+    decisions = final_state.values.get(
+        "decisions",
+        [],
+    )
+
+    assert decisions
+
+    for decision in decisions:
+        assert "timestamp" in decision

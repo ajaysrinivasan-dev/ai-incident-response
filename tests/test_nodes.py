@@ -19,6 +19,17 @@ def test_triage_incident():
     assert result["severity"] == "high"
     assert "triage" in result["timeline"][0].lower()
 
+    evidence = result["evidence"][0]
+    decision = result["decisions"][0]
+
+    assert "timestamp" in evidence
+    assert "timestamp" in decision
+
+    assert evidence["source"] == "triage"
+    assert evidence["type"] == "initial_assessment"
+
+    assert decision["stage"] == "triage"
+
 
 def test_collect_evidence():
     state = {
@@ -45,9 +56,18 @@ def test_collect_evidence():
 
     assert "type" in first_evidence
     assert "source" in first_evidence
+    assert "timestamp" in first_evidence
 
     assert first_evidence["source"] == "simulated_log_1"
     assert second_evidence["source"] == "simulated_log_2"
+
+    assert first_evidence["type"] == "log"
+    assert second_evidence["type"] == "log"
+
+    decision = result["decisions"][0]
+
+    assert "timestamp" in decision
+    assert decision["stage"] == "evidence_collection"
 
 
 def test_analyze_incident_fallback():
@@ -59,7 +79,10 @@ def test_analyze_incident_fallback():
         "evidence": [
             {
                 "type": "log",
-                "value": "Multiple failed login attempts followed by successful login",
+                "value": (
+                    "Multiple failed login attempts "
+                    "followed by successful login"
+                ),
             }
         ],
     }
@@ -73,6 +96,13 @@ def test_analyze_incident_fallback():
     assert isinstance(result["hypothesis"], str)
     assert isinstance(result["confidence"], float)
     assert 0.0 <= result["confidence"] <= 1.0
+
+    decision = result["decisions"][0]
+
+    assert "timestamp" in decision
+    assert decision["stage"] == "analysis"
+    assert "analysis_source" in decision
+    assert "confidence" in decision
 
 
 def test_plan_response():
@@ -92,3 +122,9 @@ def test_plan_response():
     assert "recommended_action" in result
     assert isinstance(result["recommended_action"], str)
     assert len(result["recommended_action"]) > 0
+
+    decision = result["decisions"][0]
+
+    assert "timestamp" in decision
+    assert decision["stage"] == "response_planning"
+    assert decision["severity"] == "critical"

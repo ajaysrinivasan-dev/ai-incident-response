@@ -14,16 +14,57 @@ OLLAMA_MODEL = "llama3.1"
 
 
 # ============================================================
-# Timeline Timestamp
+# Timestamp Helpers
 # ============================================================
 
 
 def _timestamp() -> str:
     """
-    Return the current local timestamp for the investigation timeline.
+    Return the current local timestamp.
     """
 
-    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return datetime.now().astimezone().strftime(
+        "%Y-%m-%d %H:%M:%S %Z"
+    )
+
+
+def _timestamped_evidence(
+    *,
+    source: str,
+    evidence_type: str,
+    details: str,
+) -> dict[str, Any]:
+    """
+    Create a standardized evidence record with a timestamp.
+    """
+
+    return {
+        "timestamp": _timestamp(),
+        "source": source,
+        "type": evidence_type,
+        "details": details,
+    }
+
+
+def _timestamped_decision(
+    *,
+    stage: str,
+    decision: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    """
+    Create a standardized decision record with a timestamp.
+    """
+
+    record: dict[str, Any] = {
+        "timestamp": _timestamp(),
+        "stage": stage,
+        "decision": decision,
+    }
+
+    record.update(extra)
+
+    return record
 
 
 # ============================================================
@@ -50,6 +91,11 @@ def _safe_confidence(
     )
 
 
+# ============================================================
+# Deterministic Fallback Analysis
+# ============================================================
+
+
 def _fallback_analysis(
     evidence: list[dict[str, Any]],
 ) -> tuple[str, float, str]:
@@ -61,10 +107,14 @@ def _fallback_analysis(
     """
 
     evidence_text = " ".join(
-        str(item.get("details", item)) for item in evidence
+        str(item.get("details", item))
+        for item in evidence
     ).lower()
 
-    if "failed login" in evidence_text and "successful login" in evidence_text:
+    if (
+        "failed login" in evidence_text
+        and "successful login" in evidence_text
+    ):
         return (
             "Possible unauthorized account access following repeated failed login attempts.",
             0.85,
@@ -76,7 +126,10 @@ def _fallback_analysis(
             ),
         )
 
-    if "malware" in evidence_text or "suspicious process" in evidence_text:
+    if (
+        "malware" in evidence_text
+        or "suspicious process" in evidence_text
+    ):
         return (
             "Possible malware infection or suspicious malicious process execution.",
             0.80,
@@ -86,7 +139,10 @@ def _fallback_analysis(
             ),
         )
 
-    if "phishing" in evidence_text or "suspicious email" in evidence_text:
+    if (
+        "phishing" in evidence_text
+        or "suspicious email" in evidence_text
+    ):
         return (
             "Possible phishing attempt targeting an organization user.",
             0.78,
@@ -96,7 +152,10 @@ def _fallback_analysis(
             ),
         )
 
-    if "ransomware" in evidence_text or "encrypted files" in evidence_text:
+    if (
+        "ransomware" in evidence_text
+        or "encrypted files" in evidence_text
+    ):
         return (
             "Possible ransomware activity affecting an endpoint or system.",
             0.90,
@@ -106,7 +165,10 @@ def _fallback_analysis(
             ),
         )
 
-    if "data exfiltration" in evidence_text or "large data transfer" in evidence_text:
+    if (
+        "data exfiltration" in evidence_text
+        or "large data transfer" in evidence_text
+    ):
         return (
             "Possible unauthorized data exfiltration.",
             0.82,
@@ -116,7 +178,10 @@ def _fallback_analysis(
             ),
         )
 
-    if "ddos" in evidence_text or "unusual traffic" in evidence_text:
+    if (
+        "ddos" in evidence_text
+        or "unusual traffic" in evidence_text
+    ):
         return (
             "Possible denial-of-service or abnormal network traffic activity.",
             0.76,
@@ -126,7 +191,10 @@ def _fallback_analysis(
             ),
         )
 
-    if "insider" in evidence_text or "privileged user" in evidence_text:
+    if (
+        "insider" in evidence_text
+        or "privileged user" in evidence_text
+    ):
         return (
             "Possible insider threat or suspicious privileged-user activity.",
             0.70,
@@ -308,26 +376,35 @@ def triage_incident(
         "Unknown Incident",
     )
 
+    decision_text = (
+        f"Incident classified as {severity} severity."
+    )
+
     return {
         "severity": severity,
         "evidence": [
-            {
-                "source": "triage",
-                "type": "initial_assessment",
-                "details": (
+            _timestamped_evidence(
+                source="triage",
+                evidence_type="initial_assessment",
+                details=(
                     f"Initial triage classified "
                     f"'{incident_title}' as "
                     f"{severity} severity."
                 ),
-            }
+            )
         ],
         "decisions": [
-            {
-                "stage": "triage",
-                "decision": (f"Incident classified as {severity} severity."),
-            }
+            _timestamped_decision(
+                stage="triage",
+                decision=decision_text,
+            )
         ],
-        "timeline": [(f"[{_timestamp()}] Triage completed: {severity} severity.")],
+        "timeline": [
+            (
+                f"[{_timestamp()}] "
+                f"Triage completed: {severity} severity."
+            )
+        ],
     }
 
 
@@ -353,45 +430,48 @@ def collect_evidence(
         [],
     )
 
-    collected_evidence = []
+    collected_evidence: list[dict[str, Any]] = []
 
     for index, log in enumerate(
         logs,
         start=1,
     ):
         collected_evidence.append(
-            {
-                "source": f"simulated_log_{index}",
-                "type": "log",
-                "details": str(log),
-            }
+            _timestamped_evidence(
+                source=f"simulated_log_{index}",
+                evidence_type="log",
+                details=str(log),
+            )
         )
 
     if not collected_evidence:
         collected_evidence.append(
-            {
-                "source": "evidence_collection",
-                "type": "status",
-                "details": ("No simulated logs were provided."),
-            }
+            _timestamped_evidence(
+                source="evidence_collection",
+                evidence_type="status",
+                details="No simulated logs were provided.",
+            )
         )
+
+    decision_text = (
+        f"Collected {len(collected_evidence)} "
+        "simulated evidence item(s)."
+    )
 
     return {
         "evidence": collected_evidence,
         "decisions": [
-            {
-                "stage": "evidence_collection",
-                "decision": (
-                    f"Collected {len(collected_evidence)} simulated evidence item(s)."
-                ),
-            }
+            _timestamped_decision(
+                stage="evidence_collection",
+                decision=decision_text,
+            )
         ],
         "timeline": [
             (
                 f"[{_timestamp()}] "
                 f"Evidence collection completed: "
                 f"{len(collected_evidence)} "
-                f"item(s) collected."
+                "item(s) collected."
             )
         ],
     }
@@ -449,26 +529,34 @@ def analyze_incident(
             "deterministic fallback analysis was used."
         )
 
-        print(f"Ollama analysis unavailable. Using fallback analysis. Reason: {exc}")
+        print(
+            "Ollama analysis unavailable. "
+            "Using fallback analysis. "
+            f"Reason: {exc}"
+        )
 
-    analysis_source = "Ollama LLM" if llm_used else "Rule-based fallback"
+    analysis_source = (
+        "Ollama LLM"
+        if llm_used
+        else "Rule-based fallback"
+    )
 
     return {
         "hypothesis": hypothesis,
         "confidence": confidence,
         "reasoning": reasoning,
         "decisions": [
-            {
-                "stage": "analysis",
-                "decision": hypothesis,
-                "confidence": confidence,
-                "analysis_source": analysis_source,
-            }
+            _timestamped_decision(
+                stage="analysis",
+                decision=hypothesis,
+                confidence=confidence,
+                analysis_source=analysis_source,
+            )
         ],
         "timeline": [
             (
                 f"[{_timestamp()}] "
-                f"AI analysis completed using "
+                "AI analysis completed using "
                 f"{analysis_source} with confidence "
                 f"{confidence:.2f}."
             )
@@ -530,17 +618,17 @@ def plan_response(
     return {
         "recommended_action": recommended_action,
         "decisions": [
-            {
-                "stage": "response_planning",
-                "decision": recommended_action,
-                "based_on": hypothesis,
-                "severity": severity,
-            }
+            _timestamped_decision(
+                stage="response_planning",
+                decision=recommended_action,
+                based_on=hypothesis,
+                severity=severity,
+            )
         ],
         "timeline": [
             (
                 f"[{_timestamp()}] "
-                f"Response plan created for "
+                "Response plan created for "
                 f"{severity} severity incident."
             )
         ],
@@ -584,7 +672,9 @@ def request_approval(
             "recommended_action",
             "No recommendation available.",
         ),
-        "message": ("Analyst approval is required before simulated containment."),
+        "message": (
+            "Analyst approval is required before simulated containment."
+        ),
     }
 
     human_response = interrupt(approval_request)
@@ -613,13 +703,15 @@ def request_approval(
         "containment_approved": approved,
         "approval_comment": comment,
         "decisions": [
-            {
-                "stage": "human_approval",
-                "decision": decision_text,
-                "comment": comment,
-            }
+            _timestamped_decision(
+                stage="human_approval",
+                decision=decision_text,
+                comment=comment,
+            )
         ],
-        "timeline": [(f"[{_timestamp()}] {decision_text}")],
+        "timeline": [
+            f"[{_timestamp()}] {decision_text}"
+        ],
     }
 
 
@@ -652,7 +744,9 @@ def containment(
             "relevant evidence preserved."
         )
 
-        decision = "Simulated containment executed after analyst approval."
+        decision = (
+            "Simulated containment executed after analyst approval."
+        )
 
     else:
         result = (
@@ -661,17 +755,21 @@ def containment(
             "containment action."
         )
 
-        decision = "Containment skipped because analyst approval was rejected."
+        decision = (
+            "Containment skipped because analyst approval was rejected."
+        )
 
     return {
         "containment_result": result,
         "decisions": [
-            {
-                "stage": "containment",
-                "decision": decision,
-            }
+            _timestamped_decision(
+                stage="containment",
+                decision=decision,
+            )
         ],
-        "timeline": [(f"[{_timestamp()}] {decision}")],
+        "timeline": [
+            f"[{_timestamp()}] {decision}"
+        ],
     }
 
 
@@ -754,7 +852,7 @@ Incident:
 {title}
 
 Severity:
-{severity.upper()}
+{str(severity).upper()}
 
 ------------------------------------------------------------
 AI ASSESSMENT
@@ -814,5 +912,10 @@ END OF REPORT
 
     return {
         "final_report": report,
-        "timeline": [(f"[{_timestamp()}] Final incident response report generated.")],
+        "timeline": [
+            (
+                f"[{_timestamp()}] "
+                "Final incident response report generated."
+            )
+        ],
     }

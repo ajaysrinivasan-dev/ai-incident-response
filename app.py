@@ -5,8 +5,11 @@ from langgraph.types import Command
 
 from incident_agent import incident_graph
 from checkpoint_manager import (
-    get_saved_threads,
-    checkpoint_database_exists,
+    archive_investigation,
+    create_investigation,
+    delete_investigation,
+    get_investigations,
+    update_investigation,
 )
 
 
@@ -331,68 +334,93 @@ with st.sidebar:
 
     st.header("💾 Saved Investigations")
 
-    saved_threads = get_saved_threads()
-
-    # Build friendly labels for saved investigations
-    saved_investigations = []
-
-    if checkpoint_database_exists() and saved_threads:
-        for thread_id in saved_threads:
-            try:
-                saved_config = {"configurable": {"thread_id": thread_id}}
-
-                saved_state = incident_graph.get_state(saved_config)
-                saved_values = saved_state.values or {}
-
-                incident_data = saved_values.get("incident", {})
-                incident_type = incident_data.get("type", "Unknown Incident")
-
-                severity = saved_values.get("severity", "Not assessed")
-
-                saved_investigations.append(
-                    {
-                        "thread_id": thread_id,
-                        "incident_type": incident_type,
-                        "severity": severity,
-                    }
-                )
-
-            except Exception:
-                continue
+    saved_investigations = get_investigations()
 
     if saved_investigations:
-        saved_options = [
-            (f"{item['incident_type']} ({item['severity'].upper()})")
-            for item in saved_investigations
+        investigation_labels = [
+            (
+                f"{investigation['title']} | "
+                f"{investigation['severity'].upper()} | "
+                f"{investigation['status']}"
+            )
+            for investigation in saved_investigations
         ]
 
         selected_label = st.selectbox(
-            "Select Investigation",
-            saved_options,
+            "Select saved investigation",
+            ["Select an investigation"] + investigation_labels,
             key="saved_investigation_selector",
         )
 
-        selected_investigation = next(
-            (
-                item
-                for item in saved_investigations
-                if (f"{item['incident_type']} ({item['severity'].upper()})")
-                == selected_label
-            ),
-            None,
-        )
+        if selected_label != "Select an investigation":
+            selected_index = investigation_labels.index(selected_label)
+            selected_investigation = saved_investigations[selected_index]
 
-        if selected_investigation:
-            if st.button(
-                "Load Investigation",
-                use_container_width=True,
-            ):
-                st.session_state.thread_id = selected_investigation["thread_id"]
-                st.session_state.investigation_started = True
-                st.rerun()
+            st.caption(
+                f"Scenario: {selected_investigation['scenario']}"
+            )
+            st.caption(
+                f"Updated: {selected_investigation['updated_at']}"
+            )
 
-    else:
-        st.caption("No saved investigations found.")
+            col_resume, col_archive, col_delete = st.columns(3)
+
+            with col_resume:
+                if st.button(
+                    "▶ Resume",
+                    use_container_width=True,
+                ):
+                    selected_thread = selected_investigation["thread_id"]
+                    config = {
+                        "configurable": {
+                            "thread_id": selected_thread
+                        }
+                    }
+
+                    try:
+                        saved_state = incident_graph.get_state(config)
+
+                        if saved_state.values:
+                            st.session_state.thread_id = selected_thread
+                            st.session_state.investigation_started = True
+                            st.rerun()
+                        else:
+                            st.error(
+                                "Saved investigation could not be loaded."
+                            )
+
+                    except Exception as exc:
+                        st.error(f"Resume failed: {exc}")
+
+            with col_archive:
+                if st.button(
+                    "Archive",
+                    use_container_width=True,
+                ):
+                    selected_thread = selected_investigation["thread_id"]
+
+                    if archive_investigation(selected_thread):
+                        st.success("Investigation archived.")
+                        st.rerun()
+                    else:
+                        st.error("Could not archive investigation.")
+
+            with col_delete:
+                if st.button(
+                    "Delete",
+                    use_container_width=True,
+                ):
+                    selected_thread = selected_investigation["thread_id"]
+
+                    if delete_investigation(selected_thread):
+                        if st.session_state.thread_id == selected_thread:
+                            st.session_state.thread_id = None
+                            st.session_state.investigation_started = False
+
+                        st.success("Investigation deleted.")
+                        st.rerun()
+                    else:
+                        st.error("Could not delete investigation.")
 
     st.divider()
 
@@ -484,6 +512,20 @@ with st.sidebar:
     ):
         new_thread_id = f"incident-{uuid.uuid4()}"
 
+        create_investigation(
+            thread_id=new_thread_id,
+            title=selected_incident.get(
+                "title",
+                "Security Investigation",
+            ),
+            scenario=scenario,
+            severity=selected_incident.get(
+                "severity_hint",
+                "medium",
+            ),
+            status="Running",
+        )
+
         st.session_state.thread_id = new_thread_id
         st.session_state.investigation_started = True
 
@@ -496,9 +538,21 @@ with st.sidebar:
 
         config = {"configurable": {"thread_id": new_thread_id}}
 
-        incident_graph.invoke(
+        result = incident_graph.invoke(
             initial_state,
             config=config,
+        )
+
+        update_investigation(
+            new_thread_id,
+            severity=result.get(
+                "severity",
+                selected_incident.get(
+                    "severity_hint",
+                    "medium",
+                ),
+            ),
+            status="Awaiting Approval",
         )
 
         st.rerun()
