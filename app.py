@@ -1,9 +1,12 @@
 import uuid
+import logging
+import re
+from typing import Any
 
 import streamlit as st
 from langgraph.types import Command
 
-from incident_agent import incident_graph
+from incident_agent import build_incident_graph
 from checkpoint_manager import (
     archive_investigation,
     create_investigation,
@@ -11,6 +14,14 @@ from checkpoint_manager import (
     get_investigations,
     update_investigation,
 )
+from state import IncidentState
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -24,124 +35,13 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# PREBUILT INCIDENT SCENARIOS
-# ============================================================
+@st.cache_resource
+def get_incident_graph():
+    """Create and cache one checkpointer-backed graph per app process."""
+    return build_incident_graph()
 
-INCIDENT_SCENARIOS = {
-    "Suspicious Authentication / Brute Force": {
-        "title": "Suspicious Authentication Activity",
-        "severity": "high",
-        "description": (
-            "Multiple failed login attempts were detected "
-            "followed by a successful authentication."
-        ),
-        "logs": [
-            "Failed login from user account admin",
-            "Failed login from user account admin",
-            "Failed login from user account admin",
-            "Failed login from user account admin",
-            "Successful login after repeated failures",
-        ],
-    },
-    "Malware Infection": {
-        "title": "Possible Malware Infection",
-        "severity": "high",
-        "description": (
-            "Suspicious processes and unusual endpoint activity were detected."
-        ),
-        "logs": [
-            "Suspicious process detected on endpoint",
-            "Unknown executable started",
-            "Security alert triggered for unusual behavior",
-            "Unusual outbound network connection detected",
-        ],
-    },
-    "Phishing Attempt": {
-        "title": "Possible Phishing Attack",
-        "severity": "medium",
-        "description": (
-            "A user interacted with a suspicious email "
-            "and unusual authentication activity followed."
-        ),
-        "logs": [
-            "User received suspicious email",
-            "User clicked external link in email",
-            "Credentials entered on unrecognized page",
-            "Unusual login detected from new location",
-        ],
-    },
-    "Ransomware Activity": {
-        "title": "Possible Ransomware Activity",
-        "severity": "high",
-        "description": (
-            "Multiple files were rapidly modified and suspicious "
-            "encryption-related activity was detected."
-        ),
-        "logs": [
-            "Large number of files modified rapidly",
-            "File extensions changed unexpectedly",
-            "Suspicious encryption process detected",
-            "Ransom note detected on endpoint",
-        ],
-    },
-    "Data Exfiltration": {
-        "title": "Possible Data Exfiltration",
-        "severity": "high",
-        "description": (
-            "Unusually large outbound data transfers and access "
-            "to sensitive information were detected."
-        ),
-        "logs": [
-            "Large outbound data transfer detected",
-            "Sensitive files accessed",
-            "Connection established with unknown external server",
-            "Unusual network activity detected",
-        ],
-    },
-    "DDoS / Unusual Traffic": {
-        "title": "Possible DDoS Attack",
-        "severity": "high",
-        "description": (
-            "The system experienced an unusual volume of network "
-            "traffic affecting availability."
-        ),
-        "logs": [
-            "Sudden increase in inbound network requests",
-            "Repeated requests from multiple external sources",
-            "Server response time increased significantly",
-            "Service availability degraded",
-        ],
-    },
-    "Insider Threat": {
-        "title": "Possible Insider Threat",
-        "severity": "medium",
-        "description": (
-            "An internal user accessed unusual sensitive data "
-            "and performed unexpected file activity."
-        ),
-        "logs": [
-            "Employee accessed unusual sensitive files",
-            "Access occurred outside normal working hours",
-            "Large number of files copied",
-            "Unusual removable media activity detected",
-        ],
-    },
-    "Suspicious Endpoint Activity": {
-        "title": "Suspicious Endpoint Activity",
-        "severity": "medium",
-        "description": (
-            "The endpoint showed unusual process and network "
-            "behavior requiring investigation."
-        ),
-        "logs": [
-            "Unknown process started",
-            "Process consumed unusually high resources",
-            "Unexpected outbound connection detected",
-            "Endpoint security alert generated",
-        ],
-    },
-}
+
+incident_graph = get_incident_graph()
 
 
 # ============================================================
@@ -211,6 +111,8 @@ def resume_investigation(
     """
 
     try:
+        logger.info("Resuming investigation: approved=%s", approved)
+
         with st.spinner("Resuming investigation..."):
             incident_graph.invoke(
                 Command(
@@ -222,9 +124,19 @@ def resume_investigation(
                 config=get_config(),
             )
 
+        current_state = incident_graph.get_state(get_config())
+
+        if current_state.next == () and "final_report" in current_state.values:
+            update_investigation(
+                st.session_state.thread_id,
+                status="Completed",
+                severity=current_state.values.get("severity"),
+            )
+
         st.rerun()
 
     except Exception as exc:
+        logger.exception("Could not resume investigation")
         st.error(f"Could not resume investigation: {exc}")
 
 
@@ -356,12 +268,8 @@ with st.sidebar:
             selected_index = investigation_labels.index(selected_label)
             selected_investigation = saved_investigations[selected_index]
 
-            st.caption(
-                f"Scenario: {selected_investigation['scenario']}"
-            )
-            st.caption(
-                f"Updated: {selected_investigation['updated_at']}"
-            )
+            st.caption(f"Scenario: {selected_investigation['scenario']}")
+            st.caption(f"Updated: {selected_investigation['updated_at']}")
 
             col_resume, col_archive, col_delete = st.columns(3)
 
@@ -371,11 +279,7 @@ with st.sidebar:
                     use_container_width=True,
                 ):
                     selected_thread = selected_investigation["thread_id"]
-                    config = {
-                        "configurable": {
-                            "thread_id": selected_thread
-                        }
-                    }
+                    config = {"configurable": {"thread_id": selected_thread}}
 
                     try:
                         saved_state = incident_graph.get_state(config)
@@ -385,9 +289,7 @@ with st.sidebar:
                             st.session_state.investigation_started = True
                             st.rerun()
                         else:
-                            st.error(
-                                "Saved investigation could not be loaded."
-                            )
+                            st.error("Saved investigation could not be loaded.")
 
                     except Exception as exc:
                         st.error(f"Resume failed: {exc}")
@@ -430,13 +332,17 @@ with st.sidebar:
 
     scenario_names = list(SCENARIOS.keys())
 
-    scenario = st.selectbox(
-        "Incident Scenario",
-        scenario_names,
-        key="scenario_selector",
+    scenario = str(
+        st.selectbox(
+            "Incident Scenario",
+            scenario_names,
+            key="scenario_selector",
+        )
     )
 
     # CUSTOM INCIDENT
+
+    selected_incident: dict[str, Any]
 
     if scenario == "Custom Incident":
         st.subheader("Custom Incident")
@@ -482,7 +388,7 @@ with st.sidebar:
     # PREDEFINED INCIDENT
 
     else:
-        selected_incident = SCENARIOS[scenario]
+        selected_incident = dict(SCENARIOS[scenario])
 
         st.subheader("Selected Scenario")
 
@@ -495,9 +401,11 @@ with st.sidebar:
 
         st.caption(
             "Severity hint: "
-            + selected_incident.get(
-                "severity_hint",
-                "unknown",
+            + str(
+                selected_incident.get(
+                    "severity_hint",
+                    "unknown",
+                )
             ).upper()
         )
 
@@ -514,14 +422,18 @@ with st.sidebar:
 
         create_investigation(
             thread_id=new_thread_id,
-            title=selected_incident.get(
-                "title",
-                "Security Investigation",
+            title=str(
+                selected_incident.get(
+                    "title",
+                    "Security Investigation",
+                )
             ),
             scenario=scenario,
-            severity=selected_incident.get(
-                "severity_hint",
-                "medium",
+            severity=str(
+                selected_incident.get(
+                    "severity_hint",
+                    "medium",
+                )
             ),
             status="Running",
         )
@@ -529,7 +441,7 @@ with st.sidebar:
         st.session_state.thread_id = new_thread_id
         st.session_state.investigation_started = True
 
-        initial_state = {
+        initial_state: IncidentState = {
             "incident": selected_incident,
             "evidence": [],
             "decisions": [],
@@ -538,10 +450,28 @@ with st.sidebar:
 
         config = {"configurable": {"thread_id": new_thread_id}}
 
-        result = incident_graph.invoke(
-            initial_state,
-            config=config,
-        )
+        with st.status("Running investigation...", expanded=True) as progress:
+            for update in incident_graph.stream(
+                initial_state,
+                config=config,
+                stream_mode="updates",
+            ):
+                for node_name in update:
+                    st.write(f"Completed stage: {node_name}")
+
+            current_state = incident_graph.get_state(config)
+            result = dict(current_state.values)
+
+            if "human_approval" in current_state.next:
+                progress.update(
+                    label="Investigation paused for human approval",
+                    state="complete",
+                )
+            else:
+                progress.update(
+                    label="Investigation completed",
+                    state="complete",
+                )
 
         update_investigation(
             new_thread_id,
@@ -616,22 +546,8 @@ if not st.session_state.investigation_started:
     st.subheader("Investigation Workflow")
 
     st.code(
-        """Incident Input
-      ↓
-Triage
-      ↓
-Evidence Collection
-      ↓
-AI Analysis
-      ↓
-Response Planning
-      ↓
-Human Approval
-      ↓
-Simulated Containment
-      ↓
-Final Report""",
-        language="text",
+        incident_graph.get_graph().draw_mermaid(),
+        language="mermaid",
     )
 
 
@@ -1070,6 +986,31 @@ else:
             st.code(
                 final_report,
                 language="text",
+            )
+
+            report_title = str(
+                incident.get(
+                    "title",
+                    "incident-report",
+                )
+            )
+            report_filename = (
+                re.sub(
+                    r"[^a-zA-Z0-9]+",
+                    "-",
+                    report_title,
+                )
+                .strip("-")
+                .lower()
+                or "incident-report"
+            )
+
+            st.download_button(
+                "Download Report",
+                data=final_report,
+                file_name=f"{report_filename}.md",
+                mime="text/markdown",
+                use_container_width=True,
             )
 
         else:

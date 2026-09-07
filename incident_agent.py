@@ -1,4 +1,4 @@
-from pathlib import Path
+import logging
 import sqlite3
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -14,10 +14,10 @@ from nodes import (
     triage_incident,
 )
 from state import IncidentState
+from config import CHECKPOINT_DB
 
 
-BASE_DIR = Path(__file__).resolve().parent
-CHECKPOINT_DB = BASE_DIR / "incident_checkpoints.db"
+logger = logging.getLogger(__name__)
 
 
 def build_incident_graph():
@@ -29,6 +29,8 @@ def build_incident_graph():
     Streamlit's execution model by disabling the same-thread
     restriction.
     """
+
+    logger.info("Building incident response graph")
 
     workflow = StateGraph(IncidentState)
 
@@ -64,7 +66,3 @@ def build_incident_graph():
     graph = workflow.compile(checkpointer=checkpointer)
 
     return graph
-
-
-# Build the application graph once when this module is imported.
-incident_graph = build_incident_graph()

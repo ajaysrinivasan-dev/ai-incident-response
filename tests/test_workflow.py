@@ -17,11 +17,7 @@ def test_workflow_pauses_for_human_approval():
         ],
     }
 
-    config = {
-        "configurable": {
-            "thread_id": "test-phishing-approval-v2"
-        }
-    }
+    config = {"configurable": {"thread_id": "test-phishing-approval-v2"}}
 
     result = graph.invoke(
         {
@@ -55,6 +51,44 @@ def test_workflow_pauses_for_human_approval():
         assert "timestamp" in decision
 
 
+def test_workflow_resumes_after_rejection():
+    graph = build_incident_graph()
+
+    config = {"configurable": {"thread_id": "test-phishing-rejection-v2"}}
+
+    graph.invoke(
+        {
+            "incident": {
+                "title": "Rejected Containment Test",
+                "severity_hint": "Medium",
+                "logs": ["Suspicious email reported"],
+            }
+        },
+        config,
+    )
+
+    state_before_resume = graph.get_state(config)
+
+    assert "human_approval" in state_before_resume.next
+
+    graph.invoke(
+        Command(
+            resume={
+                "approved": False,
+                "comment": "Containment requires additional review.",
+            }
+        ),
+        config,
+    )
+
+    final_state = graph.get_state(config)
+
+    assert final_state.next == ()
+    assert "final_report" in final_state.values
+    assert final_state.values["containment_approved"] is False
+    assert "NOT EXECUTED" in final_state.values["containment_result"]
+
+
 def test_workflow_resumes_after_approval():
     graph = build_incident_graph()
 
@@ -69,11 +103,7 @@ def test_workflow_resumes_after_approval():
         ],
     }
 
-    config = {
-        "configurable": {
-            "thread_id": "test-phishing-resume-v2"
-        }
-    }
+    config = {"configurable": {"thread_id": "test-phishing-resume-v2"}}
 
     graph.invoke(
         {

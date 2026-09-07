@@ -1,9 +1,14 @@
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
 import ollama
 from langgraph.types import interrupt
+from state import IncidentState
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -23,9 +28,7 @@ def _timestamp() -> str:
     Return the current local timestamp.
     """
 
-    return datetime.now().astimezone().strftime(
-        "%Y-%m-%d %H:%M:%S %Z"
-    )
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _timestamped_evidence(
@@ -107,14 +110,10 @@ def _fallback_analysis(
     """
 
     evidence_text = " ".join(
-        str(item.get("details", item))
-        for item in evidence
+        str(item.get("details", item)) for item in evidence
     ).lower()
 
-    if (
-        "failed login" in evidence_text
-        and "successful login" in evidence_text
-    ):
+    if "failed login" in evidence_text and "successful login" in evidence_text:
         return (
             "Possible unauthorized account access following repeated failed login attempts.",
             0.85,
@@ -126,10 +125,7 @@ def _fallback_analysis(
             ),
         )
 
-    if (
-        "malware" in evidence_text
-        or "suspicious process" in evidence_text
-    ):
+    if "malware" in evidence_text or "suspicious process" in evidence_text:
         return (
             "Possible malware infection or suspicious malicious process execution.",
             0.80,
@@ -139,10 +135,7 @@ def _fallback_analysis(
             ),
         )
 
-    if (
-        "phishing" in evidence_text
-        or "suspicious email" in evidence_text
-    ):
+    if "phishing" in evidence_text or "suspicious email" in evidence_text:
         return (
             "Possible phishing attempt targeting an organization user.",
             0.78,
@@ -152,10 +145,7 @@ def _fallback_analysis(
             ),
         )
 
-    if (
-        "ransomware" in evidence_text
-        or "encrypted files" in evidence_text
-    ):
+    if "ransomware" in evidence_text or "encrypted files" in evidence_text:
         return (
             "Possible ransomware activity affecting an endpoint or system.",
             0.90,
@@ -165,10 +155,7 @@ def _fallback_analysis(
             ),
         )
 
-    if (
-        "data exfiltration" in evidence_text
-        or "large data transfer" in evidence_text
-    ):
+    if "data exfiltration" in evidence_text or "large data transfer" in evidence_text:
         return (
             "Possible unauthorized data exfiltration.",
             0.82,
@@ -178,10 +165,7 @@ def _fallback_analysis(
             ),
         )
 
-    if (
-        "ddos" in evidence_text
-        or "unusual traffic" in evidence_text
-    ):
+    if "ddos" in evidence_text or "unusual traffic" in evidence_text:
         return (
             "Possible denial-of-service or abnormal network traffic activity.",
             0.76,
@@ -191,10 +175,7 @@ def _fallback_analysis(
             ),
         )
 
-    if (
-        "insider" in evidence_text
-        or "privileged user" in evidence_text
-    ):
+    if "insider" in evidence_text or "privileged user" in evidence_text:
         return (
             "Possible insider threat or suspicious privileged-user activity.",
             0.70,
@@ -342,7 +323,7 @@ Analyze the incident and return the required JSON.
 
 
 def triage_incident(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Perform initial incident triage.
@@ -350,6 +331,8 @@ def triage_incident(
     The current simulation uses the severity supplied by
     the incident scenario.
     """
+
+    logger.info("Starting incident triage")
 
     incident = state.get(
         "incident",
@@ -376,9 +359,7 @@ def triage_incident(
         "Unknown Incident",
     )
 
-    decision_text = (
-        f"Incident classified as {severity} severity."
-    )
+    decision_text = f"Incident classified as {severity} severity."
 
     return {
         "severity": severity,
@@ -399,12 +380,7 @@ def triage_incident(
                 decision=decision_text,
             )
         ],
-        "timeline": [
-            (
-                f"[{_timestamp()}] "
-                f"Triage completed: {severity} severity."
-            )
-        ],
+        "timeline": [(f"[{_timestamp()}] Triage completed: {severity} severity.")],
     }
 
 
@@ -414,11 +390,13 @@ def triage_incident(
 
 
 def collect_evidence(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Collect simulated evidence from the incident input.
     """
+
+    logger.info("Collecting simulated incident evidence")
 
     incident = state.get(
         "incident",
@@ -453,10 +431,7 @@ def collect_evidence(
             )
         )
 
-    decision_text = (
-        f"Collected {len(collected_evidence)} "
-        "simulated evidence item(s)."
-    )
+    decision_text = f"Collected {len(collected_evidence)} simulated evidence item(s)."
 
     return {
         "evidence": collected_evidence,
@@ -483,7 +458,7 @@ def collect_evidence(
 
 
 def analyze_incident(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Analyze the incident using Ollama.
@@ -491,6 +466,8 @@ def analyze_incident(
     If Ollama is unavailable or returns an invalid response,
     the deterministic fallback analysis is used.
     """
+
+    logger.info("Starting incident analysis")
 
     incident = state.get(
         "incident",
@@ -529,17 +506,12 @@ def analyze_incident(
             "deterministic fallback analysis was used."
         )
 
-        print(
-            "Ollama analysis unavailable. "
-            "Using fallback analysis. "
-            f"Reason: {exc}"
+        logger.warning(
+            "Ollama analysis unavailable; using deterministic fallback: %s",
+            exc,
         )
 
-    analysis_source = (
-        "Ollama LLM"
-        if llm_used
-        else "Rule-based fallback"
-    )
+    analysis_source = "Ollama LLM" if llm_used else "Rule-based fallback"
 
     return {
         "hypothesis": hypothesis,
@@ -570,7 +542,7 @@ def analyze_incident(
 
 
 def plan_response(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Generate a response recommendation based on incident severity.
@@ -578,6 +550,8 @@ def plan_response(
     Actual containment is intentionally not performed here.
     The workflow requires human approval first.
     """
+
+    logger.info("Planning incident response")
 
     severity = str(
         state.get(
@@ -641,7 +615,7 @@ def plan_response(
 
 
 def request_approval(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Pause the workflow and request analyst approval.
@@ -649,6 +623,8 @@ def request_approval(
     LangGraph's interrupt() persists the graph state and waits
     for a Command(resume=...) from the application.
     """
+
+    logger.info("Waiting for human approval before containment")
 
     approval_request = {
         "type": "containment_approval",
@@ -672,12 +648,13 @@ def request_approval(
             "recommended_action",
             "No recommendation available.",
         ),
-        "message": (
-            "Analyst approval is required before simulated containment."
-        ),
+        "message": ("Analyst approval is required before simulated containment."),
     }
 
     human_response = interrupt(approval_request)
+
+    if not isinstance(human_response, dict):
+        raise ValueError("Human approval response must be a dictionary.")
 
     approved = bool(
         human_response.get(
@@ -692,6 +669,8 @@ def request_approval(
             "",
         )
     ).strip()
+
+    logger.info("Human approval received: approved=%s", approved)
 
     decision_text = (
         "Containment approved by analyst."
@@ -709,9 +688,7 @@ def request_approval(
                 comment=comment,
             )
         ],
-        "timeline": [
-            f"[{_timestamp()}] {decision_text}"
-        ],
+        "timeline": [f"[{_timestamp()}] {decision_text}"],
     }
 
 
@@ -721,7 +698,7 @@ def request_approval(
 
 
 def containment(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Perform simulated containment after human approval.
@@ -729,6 +706,8 @@ def containment(
     No real system, endpoint, account, or network resource
     is modified.
     """
+
+    logger.info("Processing simulated containment")
 
     approved = bool(
         state.get(
@@ -744,9 +723,7 @@ def containment(
             "relevant evidence preserved."
         )
 
-        decision = (
-            "Simulated containment executed after analyst approval."
-        )
+        decision = "Simulated containment executed after analyst approval."
 
     else:
         result = (
@@ -755,9 +732,9 @@ def containment(
             "containment action."
         )
 
-        decision = (
-            "Containment skipped because analyst approval was rejected."
-        )
+        decision = "Containment skipped because analyst approval was rejected."
+
+    logger.info("Containment result: approved=%s", approved)
 
     return {
         "containment_result": result,
@@ -767,9 +744,7 @@ def containment(
                 decision=decision,
             )
         ],
-        "timeline": [
-            f"[{_timestamp()}] {decision}"
-        ],
+        "timeline": [f"[{_timestamp()}] {decision}"],
     }
 
 
@@ -779,11 +754,13 @@ def containment(
 
 
 def generate_report(
-    state: dict[str, Any],
+    state: IncidentState,
 ) -> dict[str, Any]:
     """
     Generate the final investigation report.
     """
+
+    logger.info("Generating final incident report")
 
     incident = state.get(
         "incident",
@@ -912,10 +889,5 @@ END OF REPORT
 
     return {
         "final_report": report,
-        "timeline": [
-            (
-                f"[{_timestamp()}] "
-                "Final incident response report generated."
-            )
-        ],
+        "timeline": [(f"[{_timestamp()}] Final incident response report generated.")],
     }

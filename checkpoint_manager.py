@@ -1,11 +1,8 @@
 from datetime import datetime, timezone
-from pathlib import Path
 import sqlite3
 from typing import Any
 
-
-BASE_DIR = Path(__file__).resolve().parent
-CHECKPOINT_DB = BASE_DIR / "incident_checkpoints.db"
+from config import CHECKPOINT_DB
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -48,6 +45,7 @@ def create_investigation(
     status: str = "Running",
 ) -> bool:
     """Create metadata for a new investigation."""
+    initialize_metadata_table()
     now = _utc_now()
 
     try:
@@ -241,21 +239,21 @@ def delete_investigation(thread_id: str) -> bool:
                 (thread_id,),
             )
 
-            connection.execute(
-                """
-                DELETE FROM checkpoints
-                WHERE thread_id = ?
-                """,
-                (thread_id,),
-            )
+            for table_name in ("checkpoints", "writes"):
+                table_exists = connection.execute(
+                    """
+                    SELECT 1
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = ?
+                    """,
+                    (table_name,),
+                ).fetchone()
 
-            connection.execute(
-                """
-                DELETE FROM writes
-                WHERE thread_id = ?
-                """,
-                (thread_id,),
-            )
+                if table_exists:
+                    connection.execute(
+                        f"DELETE FROM {table_name} WHERE thread_id = ?",
+                        (thread_id,),
+                    )
 
             connection.commit()
 

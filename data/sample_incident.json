@@ -1,0 +1,10 @@
+{
+	"title": "Suspicious Authentication Activity",
+	"severity_hint": "high",
+	"description": "Multiple failed login attempts were followed by a successful login.",
+	"logs": [
+		"Failed login attempt from user account admin",
+		"Failed login attempt from user account admin",
+		"Successful login from an unknown location"
+	]
+}

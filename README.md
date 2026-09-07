@@ -1,6 +1,7 @@
 # Incident Response Agent
 
-A LangGraph-based simulated cybersecurity incident investigation system.
+A LangGraph-based simulated cybersecurity incident investigation system with
+Ollama-powered analysis and a deterministic offline fallback.
 
 The application demonstrates how an incident can move through multiple investigation stages while maintaining state, supporting human approval, and allowing interrupted investigations to be resumed using persistent checkpointing.
 
@@ -18,6 +19,10 @@ The application demonstrates how an incident can move through multiple investiga
 * Persistent SQLite checkpointing
 * Resume previous investigations
 * Investigation evidence and decisions stored in graph state
+* Saved investigation metadata with archive and delete actions
+* Markdown report export from completed investigations
+* Live compiled LangGraph topology display
+* Initial workflow progress streaming in the Streamlit interface
 
 ## Incident Scenarios
 
@@ -85,6 +90,8 @@ The checkpoint database is stored locally as:
 
 incident_checkpoints.db
 
+Set `INCIDENT_CHECKPOINT_DB` to use a different database path.
+
 ## Project Structure
 
 langgraph_pro/
@@ -94,9 +101,13 @@ langgraph_pro/
 ├── nodes.py
 ├── state.py
 ├── checkpoint_manager.py
+├── config.py
 ├── requirements.txt
+├── pyproject.toml
+├── tests/
+├── data/
 ├── README.md
-└── incident_checkpoints.db
+└── .gitignore
 
 
 ## Technologies Used
@@ -105,23 +116,93 @@ langgraph_pro/
 * Streamlit
 * LangGraph
 * SQLite
-* LangChain
+* Ollama
+
+## Configuration
+
+The application supports these environment variables:
+
+* `INCIDENT_CHECKPOINT_DB`: SQLite database path. The default is
+      `incident_checkpoints.db` in the project directory.
+* `OLLAMA_HOST`: Ollama server address used by the Ollama client. For a
+      container connecting to Ollama on the host, use the Docker host address
+      appropriate for your operating system, commonly `http://host.docker.internal:11434`.
+
+Ollama is intentionally not installed or started inside the application
+container.
+
+## Prerequisites
+
+* Python 3.14
+* Ollama installed and running locally
+* The `llama3.1` model available in Ollama
+
+Pull the model before starting the application:
+
+```bash
+ollama pull llama3.1
+```
 
 ## Installation
 
 Install the required dependencies:
 
-bash
+```bash
 pip install -r requirements.txt
+```
 
 ## Running the Application
 
 Start the Streamlit application:
 
-bash
+```bash
 streamlit run app.py
+```
 
 The application will open in your browser.
+
+Run the tests with:
+
+```bash
+python -m pytest
+```
+
+Run Ruff and mypy with:
+
+```bash
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy
+```
+
+## Docker
+
+Build the application image:
+
+```bash
+docker build -t langgraph-incident-response .
+```
+
+Run it with a persistent SQLite directory and an external Ollama server:
+
+```bash
+docker run --rm -p 8501:8501 \
+      -v "$(pwd)/runtime-data:/app/runtime-data" \
+      -e INCIDENT_CHECKPOINT_DB=/app/runtime-data/incident_checkpoints.db \
+      -e OLLAMA_HOST=http://host.docker.internal:11434 \
+      langgraph-incident-response
+```
+
+The container does not include an Ollama server. Ollama must be running on the
+host or another reachable machine, with `llama3.1` pulled there. The mounted
+directory keeps investigation checkpoints outside the disposable container.
+
+## Continuous Integration
+
+GitHub Actions runs on pushes and pull requests. The CI workflow installs the
+pinned dependencies and runs pytest, Ruff linting, Ruff formatting checks, and
+mypy.
+
 
 ## How It Works
 
@@ -136,6 +217,10 @@ The application will open in your browser.
 9. Simulated containment is performed.
 10. A final incident response report is generated.
 
+Completed reports can be downloaded as Markdown files from the investigation
+screen. During initial execution, the UI streams completed graph stages until
+the workflow pauses for human approval.
+
 ## Simulated Environment
 
 This project is designed for demonstration and educational purposes.
@@ -143,6 +228,17 @@ This project is designed for demonstration and educational purposes.
 All cybersecurity incidents, evidence, containment actions, and responses are simulated.
 
 The application does not perform real security monitoring, system isolation, network blocking, or other actions on actual systems.
+
+Ollama is used only to analyze the simulated incident data. If Ollama is
+unavailable or returns an invalid response, the application uses deterministic
+rule-based fallback analysis.
+
+## Troubleshooting
+
+If analysis always uses the fallback, check that Ollama is running and that
+`llama3.1` has been pulled. If an investigation cannot be resumed, verify that
+the configured SQLite database path is writable and that the original
+checkpoint database is still present.
 
 ## Purpose
 
