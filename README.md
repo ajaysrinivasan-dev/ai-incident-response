@@ -12,19 +12,16 @@ The application demonstrates how an incident can move through multiple investiga
 * Incident triage
 * Evidence collection
 * Incident analysis
-Response Planning
-      |
-      v
-Human Approval
-   /        \\
-  v          v
-Approved   Rejected
-  |          |
-  v          v
-Containment Document Only
-   \        /
-      v
-Final Report
+* Response planning
+* Human approval before containment
+* Simulated containment actions
+* Final incident report generation
+* Persistent SQLite checkpointing
+* Resume previous investigations
+* Investigation evidence and decisions stored in graph state
+* Saved investigation metadata with archive and delete actions
+* Markdown report export from completed investigations
+* Live compiled LangGraph topology display
 * Initial workflow progress streaming in the Streamlit interface
 * Evidence-based severity reassessment
 * MITRE ATT&CK technique mapping for supported indicators
@@ -138,6 +135,11 @@ The application supports these environment variables:
 * `OLLAMA_HOST`: Ollama server address used by the Ollama client. For a
       container connecting to Ollama on the host, use the Docker host address
       appropriate for your operating system, commonly `http://host.docker.internal:11434`.
+* `OLLAMA_MODEL`: Ollama model name. Defaults to `llama3.1`.
+
+Custom incident input is limited to 200 characters for the title, 4,000
+characters for the description, 100 log entries, and 2,000 characters per log
+entry. The Ollama prompt applies the same bounds for direct graph callers.
 
 Ollama is intentionally not installed or started inside the application
 container.
@@ -225,7 +227,7 @@ mypy.
 6. The workflow pauses for human approval.
 7. The human reviewer approves or rejects containment.
 8. The workflow resumes from the saved checkpoint.
-9. Simulated containment is performed.
+9. Approved investigations perform simulated containment; rejected investigations use the document-only branch.
 10. A final incident response report is generated.
 
 Completed reports can be downloaded as Markdown files from the investigation

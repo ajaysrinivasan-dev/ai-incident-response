@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Literal
 
@@ -15,7 +16,11 @@ logger = logging.getLogger(__name__)
 # Ollama Configuration
 # ============================================================
 
-OLLAMA_MODEL = "llama3.1"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+MAX_TITLE_LENGTH = 200
+MAX_DESCRIPTION_LENGTH = 4000
+MAX_LOG_COUNT = 100
+MAX_LOG_LENGTH = 2000
 
 
 # ============================================================
@@ -92,6 +97,45 @@ def _safe_confidence(
         0.0,
         min(1.0, confidence),
     )
+
+
+def _bounded_incident_for_prompt(
+    incident: dict[str, Any],
+) -> dict[str, Any]:
+    """Bound user-controlled incident fields before sending them to Ollama."""
+
+    bounded_incident = dict(incident)
+
+    for field_name, limit in (
+        ("title", MAX_TITLE_LENGTH),
+        ("description", MAX_DESCRIPTION_LENGTH),
+    ):
+        if field_name in bounded_incident:
+            bounded_incident[field_name] = str(bounded_incident[field_name])[:limit]
+
+    if "logs" in bounded_incident:
+        bounded_incident["logs"] = [
+            str(log)[:MAX_LOG_LENGTH]
+            for log in bounded_incident["logs"][:MAX_LOG_COUNT]
+        ]
+
+    return bounded_incident
+
+
+def _bounded_evidence_for_prompt(
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Bound evidence details before including them in an Ollama prompt."""
+
+    bounded_evidence: list[dict[str, Any]] = []
+
+    for item in evidence[:MAX_LOG_COUNT]:
+        bounded_item = dict(item)
+        if "details" in bounded_item:
+            bounded_item["details"] = str(bounded_item["details"])[:MAX_LOG_LENGTH]
+        bounded_evidence.append(bounded_item)
+
+    return bounded_evidence
 
 
 # ============================================================
@@ -212,13 +256,13 @@ def _analyze_with_ollama(
     """
 
     evidence_text = json.dumps(
-        evidence,
+        _bounded_evidence_for_prompt(evidence),
         indent=2,
         ensure_ascii=False,
     )
 
     incident_text = json.dumps(
-        incident,
+        _bounded_incident_for_prompt(incident),
         indent=2,
         ensure_ascii=False,
     )
@@ -778,12 +822,12 @@ def request_approval(
     if not isinstance(human_response, dict):
         raise ValueError("Human approval response must be a dictionary.")
 
-    approved = bool(
-        human_response.get(
-            "approved",
-            False,
-        )
-    )
+    approved_value = human_response.get("approved")
+
+    if type(approved_value) is not bool:
+        raise ValueError("Human approval response must contain a boolean approval.")
+
+    approved = approved_value
 
     comment = str(
         human_response.get(
@@ -839,32 +883,15 @@ def containment(
 
     logger.info("Processing simulated containment")
 
-    approved = bool(
-        state.get(
-            "containment_approved",
-            False,
-        )
+    result = (
+        "SIMULATED CONTAINMENT: "
+        "The affected endpoint would be isolated and "
+        "relevant evidence preserved."
     )
 
-    if approved:
-        result = (
-            "SIMULATED CONTAINMENT: "
-            "The affected endpoint would be isolated and "
-            "relevant evidence preserved."
-        )
+    decision = "Simulated containment executed after analyst approval."
 
-        decision = "Simulated containment executed after analyst approval."
-
-    else:
-        result = (
-            "CONTAINMENT NOT EXECUTED: "
-            "The analyst rejected the proposed "
-            "containment action."
-        )
-
-        decision = "Containment skipped because analyst approval was rejected."
-
-    logger.info("Containment result: approved=%s", approved)
+    logger.info("Containment result: approved=True")
 
     return {
         "containment_result": result,

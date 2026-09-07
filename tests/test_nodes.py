@@ -10,10 +10,19 @@ from nodes import (
     request_approval,
     triage_incident,
 )
+from state import IncidentState
+
+
+@pytest.fixture
+def force_fallback(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise ConnectionError("Ollama unavailable for deterministic test")
+
+    monkeypatch.setattr("nodes._analyze_with_ollama", unavailable)
 
 
 def test_triage_incident():
-    state = {
+    state: IncidentState = {
         "incident": {
             "severity_hint": "High",
             "description": "Suspicious login detected",
@@ -38,7 +47,7 @@ def test_triage_incident():
 
 
 def test_collect_evidence():
-    state = {
+    state: IncidentState = {
         "incident": {
             "severity_hint": "High",
             "description": "Suspicious login detected",
@@ -76,8 +85,8 @@ def test_collect_evidence():
     assert decision["stage"] == "evidence_collection"
 
 
-def test_analyze_incident_fallback():
-    state = {
+def test_analyze_incident_fallback(force_fallback):
+    state: IncidentState = {
         "incident": {
             "severity_hint": "High",
             "description": "Possible unauthorized account access",
@@ -125,7 +134,7 @@ def test_analyze_incident_fallback():
         ("Privileged user activity detected", "insider threat"),
     ],
 )
-def test_analyze_incident_fallback_categories(details, expected):
+def test_analyze_incident_fallback_categories(details, expected, force_fallback):
     result = analyze_incident(
         {
             "incident": {},
@@ -136,7 +145,7 @@ def test_analyze_incident_fallback_categories(details, expected):
     assert expected in result["hypothesis"].lower()
 
 
-def test_analyze_incident_fallback_for_unknown_evidence():
+def test_analyze_incident_fallback_for_unknown_evidence(force_fallback):
     result = analyze_incident(
         {
             "incident": {},
@@ -160,18 +169,19 @@ def test_severity_reassessment_escalates_compromised_credentials():
     assert result["severity"] == "critical"
     assert "credential compromise" in result["severity_reassessment_reason"].lower()
 
-    def test_phishing_indicators_trigger_severity_escalation():
-        result = reassess_severity(
-            {
-                "initial_severity": "high",
-                "evidence": [
-                    {"details": "User clicked suspicious link"},
-                    {"details": "Credentials entered on unrecognized page"},
-                ],
-            }
-        )
 
-        assert result["severity"] == "critical"
+def test_phishing_indicators_trigger_severity_escalation():
+    result = reassess_severity(
+        {
+            "initial_severity": "high",
+            "evidence": [
+                {"details": "User clicked suspicious link"},
+                {"details": "Credentials entered on unrecognized page"},
+            ],
+        }
+    )
+
+    assert result["severity"] == "critical"
 
 
 def test_severity_reassessment_preserves_severity_without_strong_indicators():
@@ -188,7 +198,7 @@ def test_severity_reassessment_preserves_severity_without_strong_indicators():
     assert "did not meet" in result["severity_reassessment_reason"]
 
 
-def test_analysis_maps_evidence_to_mitre_techniques():
+def test_analysis_maps_evidence_to_mitre_techniques(force_fallback):
     result = analyze_incident(
         {
             "incident": {"type": "Phishing"},
@@ -205,7 +215,7 @@ def test_analysis_maps_evidence_to_mitre_techniques():
 
 
 def test_plan_response():
-    state = {
+    state: IncidentState = {
         "incident": {
             "severity_hint": "Critical",
             "description": "Critical security incident",
@@ -229,17 +239,10 @@ def test_plan_response():
     assert decision["severity"] == "critical"
 
 
-@pytest.mark.parametrize(
-    "approved",
-    [True, False],
-)
-def test_containment_respects_approval(approved):
-    result = containment({"containment_approved": approved})
+def test_containment_executes_after_approval():
+    result = containment({"containment_approved": True})
 
-    if approved:
-        assert "SIMULATED CONTAINMENT" in result["containment_result"]
-    else:
-        assert "NOT EXECUTED" in result["containment_result"]
+    assert "SIMULATED CONTAINMENT" in result["containment_result"]
 
 
 def test_generate_report_handles_minimal_state():
@@ -249,15 +252,19 @@ def test_generate_report_handles_minimal_state():
     assert result["final_report"]
 
 
-def test_request_approval_rejects_invalid_response(monkeypatch):
+@pytest.mark.parametrize("invalid_approval", [None, "true", "false", 1, 0])
+def test_request_approval_rejects_invalid_response(
+    monkeypatch,
+    invalid_approval,
+):
     monkeypatch.setattr(
         "nodes.interrupt",
-        lambda _: None,
+        lambda _: {"approved": invalid_approval},
     )
 
     try:
         request_approval({})
     except ValueError as exc:
-        assert str(exc) == "Human approval response must be a dictionary."
+        assert str(exc) == ("Human approval response must contain a boolean approval.")
     else:
         raise AssertionError("Expected invalid approval response to fail.")

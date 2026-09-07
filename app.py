@@ -350,12 +350,14 @@ with st.sidebar:
         custom_title = st.text_input(
             "Incident Title",
             value="Custom Security Incident",
+            max_chars=200,
         )
 
         custom_description = st.text_area(
             "Description",
             value="",
             height=100,
+            max_chars=4000,
         )
 
         custom_severity = st.selectbox(
@@ -374,6 +376,7 @@ with st.sidebar:
             value="",
             height=150,
             help="Enter one log or event per line.",
+            max_chars=20000,
         )
 
         logs = [line.strip() for line in custom_logs_text.splitlines() if line.strip()]
