@@ -1,3 +1,5 @@
+import uuid
+
 from langgraph.types import Command
 
 from incident_agent import build_incident_graph
@@ -54,7 +56,7 @@ def test_workflow_pauses_for_human_approval():
 def test_workflow_resumes_after_rejection():
     graph = build_incident_graph()
 
-    config = {"configurable": {"thread_id": "test-phishing-rejection-v2"}}
+    config = {"configurable": {"thread_id": f"test-phishing-rejection-{uuid.uuid4()}"}}
 
     graph.invoke(
         {
@@ -87,6 +89,13 @@ def test_workflow_resumes_after_rejection():
     assert "final_report" in final_state.values
     assert final_state.values["containment_approved"] is False
     assert "NOT EXECUTED" in final_state.values["containment_result"]
+
+    decision_stages = {
+        decision["stage"] for decision in final_state.values["decisions"]
+    }
+
+    assert "document_only" in decision_stages
+    assert "containment" not in decision_stages
 
 
 def test_workflow_resumes_after_approval():

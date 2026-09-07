@@ -6,6 +6,7 @@ from nodes import (
     containment,
     generate_report,
     plan_response,
+    reassess_severity,
     request_approval,
     triage_incident,
 )
@@ -144,6 +145,63 @@ def test_analyze_incident_fallback_for_unknown_evidence():
     )
 
     assert "insufficient evidence" in result["hypothesis"].lower()
+
+
+def test_severity_reassessment_escalates_compromised_credentials():
+    result = reassess_severity(
+        {
+            "incident": {},
+            "initial_severity": "high",
+            "severity": "high",
+            "evidence": [{"details": "Credentials compromised after malicious link"}],
+        }
+    )
+
+    assert result["severity"] == "critical"
+    assert "credential compromise" in result["severity_reassessment_reason"].lower()
+
+    def test_phishing_indicators_trigger_severity_escalation():
+        result = reassess_severity(
+            {
+                "initial_severity": "high",
+                "evidence": [
+                    {"details": "User clicked suspicious link"},
+                    {"details": "Credentials entered on unrecognized page"},
+                ],
+            }
+        )
+
+        assert result["severity"] == "critical"
+
+
+def test_severity_reassessment_preserves_severity_without_strong_indicators():
+    result = reassess_severity(
+        {
+            "incident": {},
+            "initial_severity": "high",
+            "severity": "high",
+            "evidence": [{"details": "Suspicious email reported"}],
+        }
+    )
+
+    assert result["severity"] == "high"
+    assert "did not meet" in result["severity_reassessment_reason"]
+
+
+def test_analysis_maps_evidence_to_mitre_techniques():
+    result = analyze_incident(
+        {
+            "incident": {"type": "Phishing"},
+            "evidence": [
+                {"details": "Failed login after suspicious email and malicious link"}
+            ],
+        }
+    )
+
+    technique_ids = {technique["id"] for technique in result["mitre_techniques"]}
+
+    assert "T1110" in technique_ids
+    assert "T1566" in technique_ids
 
 
 def test_plan_response():

@@ -30,7 +30,11 @@ class IncidentState(TypedDict, total=False):
     # TRIAGE
     # ==========================================
 
+    initial_severity: str
+
     severity: str
+
+    severity_reassessment_reason: str
 
     # ==========================================
     # AI ANALYSIS
@@ -41,6 +45,8 @@ class IncidentState(TypedDict, total=False):
     confidence: float
 
     reasoning: str
+
+    mitre_techniques: Annotated[list[dict[str, str]], operator.add]
 
     # ==========================================
     # RESPONSE PLANNING

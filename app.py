@@ -668,6 +668,29 @@ else:
 
     st.write(f"**Description:** {incident.get('description', 'Not available')}")
 
+    st.subheader("Severity Reassessment")
+
+    severity_col1, severity_col2 = st.columns(2)
+
+    with severity_col1:
+        st.metric(
+            "Initial Severity",
+            str(result.get("initial_severity", severity_value)).upper(),
+        )
+
+    with severity_col2:
+        st.metric(
+            "Final Severity",
+            str(severity_value).upper(),
+        )
+
+    st.caption(
+        result.get(
+            "severity_reassessment_reason",
+            "Severity has not been reassessed yet.",
+        )
+    )
+
     # --------------------------------------------------------
     # AI ANALYSIS
     # --------------------------------------------------------
@@ -757,6 +780,18 @@ else:
     if reasoning:
         with st.expander("View AI Reasoning"):
             st.write(reasoning)
+
+    mitre_techniques = result.get("mitre_techniques", [])
+
+    with st.expander("MITRE ATT&CK Techniques"):
+        if mitre_techniques:
+            for technique in mitre_techniques:
+                st.write(
+                    f"**{technique.get('id', 'Unknown')}** - "
+                    f"{technique.get('name', 'Unknown technique')}"
+                )
+        else:
+            st.write("No techniques identified from the available evidence.")
 
     # --------------------------------------------------------
     # RESPONSE PLAN

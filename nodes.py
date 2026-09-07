@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import ollama
 from langgraph.types import interrupt
@@ -362,6 +362,7 @@ def triage_incident(
     decision_text = f"Incident classified as {severity} severity."
 
     return {
+        "initial_severity": severity,
         "severity": severity,
         "evidence": [
             _timestamped_evidence(
@@ -382,6 +383,125 @@ def triage_incident(
         ],
         "timeline": [(f"[{_timestamp()}] Triage completed: {severity} severity.")],
     }
+
+
+def reassess_severity(
+    state: IncidentState,
+) -> dict[str, Any]:
+    """Reassess severity using high-confidence evidence indicators."""
+
+    evidence_text = " ".join(
+        str(item.get("details", item)) for item in state.get("evidence", [])
+    ).lower()
+    initial_severity = str(state.get("initial_severity", "medium")).lower()
+
+    critical_indicators = (
+        "ransomware",
+        "encrypted files",
+        "ransom note",
+    )
+    credential_compromise = (
+        "credentials compromised" in evidence_text
+        or "credentials entered" in evidence_text
+    )
+    malicious_link = (
+        "malicious link" in evidence_text
+        or "external link" in evidence_text
+        or "suspicious website" in evidence_text
+        or "suspicious link" in evidence_text
+        or "malicious url" in evidence_text
+    )
+
+    if any(indicator in evidence_text for indicator in critical_indicators):
+        severity = "critical"
+        reason = "Evidence indicates ransomware or encryption activity."
+    elif credential_compromise and malicious_link:
+        severity = "critical"
+        reason = (
+            "Evidence indicates credential compromise following interaction "
+            "with a malicious link or suspicious website."
+        )
+    else:
+        severity = initial_severity
+        reason = "Evidence did not meet the threshold for severity escalation."
+
+    severity_order = {
+        "low": 0,
+        "medium": 1,
+        "high": 2,
+        "critical": 3,
+    }
+
+    if severity_order.get(severity, 1) < severity_order.get(initial_severity, 1):
+        severity = initial_severity
+        reason = "Reassessment did not reduce the initial severity."
+
+    logger.info(
+        "Severity reassessed: initial=%s final=%s",
+        initial_severity,
+        severity,
+    )
+
+    return {
+        "severity": severity,
+        "severity_reassessment_reason": reason,
+        "decisions": [
+            _timestamped_decision(
+                stage="severity_reassessment",
+                decision=f"Severity assessed as {severity}.",
+                initial_severity=initial_severity,
+                final_severity=severity,
+                reason=reason,
+            )
+        ],
+        "timeline": [f"[{_timestamp()}] Severity reassessed: {severity}."],
+    }
+
+
+def _map_mitre_techniques(
+    incident: dict[str, Any],
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Map concrete evidence indicators to relevant ATT&CK techniques."""
+
+    evidence_text = " ".join(
+        str(item.get("details", item)) for item in evidence
+    ).lower()
+    incident_text = " ".join(str(value) for value in incident.values()).lower()
+    combined_text = f"{incident_text} {evidence_text}"
+
+    mappings = (
+        (
+            ("failed login", "brute force"),
+            {"id": "T1110", "name": "Brute Force"},
+        ),
+        (
+            ("successful login", "valid account"),
+            {"id": "T1078", "name": "Valid Accounts"},
+        ),
+        (
+            ("phishing", "suspicious email", "malicious link"),
+            {"id": "T1566", "name": "Phishing"},
+        ),
+        (
+            ("ransomware", "encrypted files", "ransom note"),
+            {"id": "T1486", "name": "Data Encrypted for Impact"},
+        ),
+        (
+            ("data exfiltration", "large data transfer"),
+            {"id": "T1041", "name": "Exfiltration Over C2 Channel"},
+        ),
+        (
+            ("ddos", "unusual traffic"),
+            {"id": "T1498", "name": "Network Denial of Service"},
+        ),
+    )
+
+    return [
+        technique
+        for indicators, technique in mappings
+        if any(indicator in combined_text for indicator in indicators)
+    ]
 
 
 # ============================================================
@@ -512,11 +632,13 @@ def analyze_incident(
         )
 
     analysis_source = "Ollama LLM" if llm_used else "Rule-based fallback"
+    mitre_techniques = _map_mitre_techniques(incident, evidence)
 
     return {
         "hypothesis": hypothesis,
         "confidence": confidence,
         "reasoning": reasoning,
+        "mitre_techniques": mitre_techniques,
         "decisions": [
             _timestamped_decision(
                 stage="analysis",
@@ -692,6 +814,14 @@ def request_approval(
     }
 
 
+def route_after_approval(
+    state: IncidentState,
+) -> Literal["approved", "rejected"]:
+    """Select the explicit post-approval branch for the graph."""
+
+    return "approved" if state.get("containment_approved", False) else "rejected"
+
+
 # ============================================================
 # Node 6 — Simulated Containment
 # ============================================================
@@ -748,6 +878,33 @@ def containment(
     }
 
 
+def document_only(
+    state: IncidentState,
+) -> dict[str, Any]:
+    """Record a rejected containment without executing containment logic."""
+
+    comment = state.get("approval_comment", "")
+    result = (
+        "CONTAINMENT NOT EXECUTED: The analyst rejected the proposed "
+        "containment action."
+    )
+    decision = "Containment rejected; investigation documented without execution."
+
+    logger.info("Containment rejected; documenting investigation only")
+
+    return {
+        "containment_result": result,
+        "decisions": [
+            _timestamped_decision(
+                stage="document_only",
+                decision=decision,
+                comment=comment,
+            )
+        ],
+        "timeline": [f"[{_timestamp()}] {decision}"],
+    }
+
+
 # ============================================================
 # Node 7 — Final Report
 # ============================================================
@@ -775,6 +932,16 @@ def generate_report(
     severity = state.get(
         "severity",
         "unknown",
+    )
+
+    initial_severity = state.get(
+        "initial_severity",
+        severity,
+    )
+
+    severity_reassessment_reason = state.get(
+        "severity_reassessment_reason",
+        "No reassessment reason available.",
     )
 
     hypothesis = state.get(
@@ -820,6 +987,20 @@ def generate_report(
         [],
     )
 
+    mitre_techniques = state.get(
+        "mitre_techniques",
+        [],
+    )
+
+    technique_lines = (
+        "\n".join(
+            f"- {technique.get('id', 'Unknown')}: "
+            f"{technique.get('name', 'Unknown technique')}"
+            for technique in mitre_techniques
+        )
+        or "None identified from the available evidence."
+    )
+
     report = f"""
 ============================================================
 CYBERSECURITY INCIDENT RESPONSE REPORT
@@ -830,6 +1011,12 @@ Incident:
 
 Severity:
 {str(severity).upper()}
+
+Initial Severity:
+{str(initial_severity).upper()}
+
+Severity Reassessment:
+{severity_reassessment_reason}
 
 ------------------------------------------------------------
 AI ASSESSMENT
@@ -843,6 +1030,12 @@ Confidence:
 
 Reasoning:
 {reasoning}
+
+------------------------------------------------------------
+MITRE ATT&CK TECHNIQUES
+------------------------------------------------------------
+
+{technique_lines}
 
 ------------------------------------------------------------
 RECOMMENDED RESPONSE

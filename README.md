@@ -12,17 +12,23 @@ The application demonstrates how an incident can move through multiple investiga
 * Incident triage
 * Evidence collection
 * Incident analysis
-* Response planning
-* Human approval before containment
-* Simulated containment actions
-* Final incident report generation
-* Persistent SQLite checkpointing
-* Resume previous investigations
-* Investigation evidence and decisions stored in graph state
-* Saved investigation metadata with archive and delete actions
-* Markdown report export from completed investigations
-* Live compiled LangGraph topology display
+Response Planning
+      |
+      v
+Human Approval
+   /        \\
+  v          v
+Approved   Rejected
+  |          |
+  v          v
+Containment Document Only
+   \        /
+      v
+Final Report
 * Initial workflow progress streaming in the Streamlit interface
+* Evidence-based severity reassessment
+* MITRE ATT&CK technique mapping for supported indicators
+* Explicit approval and document-only rejection branches
 
 ## Incident Scenarios
 
@@ -56,10 +62,13 @@ Response Planning
       |
       v
 Human Approval
-      |
-      v
-Simulated Containment
-      |
+   /        \\
+  v          v
+Approved   Rejected
+  |          |
+  v          v
+Containment Document Only
+   \        /
       v
 Final Report
 
@@ -73,7 +82,9 @@ A human reviewer can:
 * Reject the containment action
 * Add a decision comment
 
-After approval or rejection, the LangGraph workflow resumes from the checkpoint and continues to the containment and reporting stages.
+After approval or rejection, the LangGraph workflow resumes from the checkpoint.
+Approval routes to simulated containment. Rejection routes directly to a
+document-only stage, records the analyst comment, and skips containment.
 
 ## Checkpointing
 
